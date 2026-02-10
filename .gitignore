@@ -90,7 +90,7 @@ id_dsa
 *.pem
 secrets.yaml
 secrets.yml
-.gitignor
+.gitignore
 
 # --- LOGS & DATABASES ---
 *.log
