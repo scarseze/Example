@@ -1,0 +1,16 @@
+# Heap dumps
+*.hprof
+
+# Build
+/build/
+/app/build/
+
+# Gradle
+.gradle/
+local.properties
+
+# IDE
+.idea/
+
+# Logs
+*.log

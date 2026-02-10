@@ -1,0 +1,7 @@
+aiogram>=3.17.0
+groq>=0.4.0
+openai>=1.10.0
+ics>=0.7.2
+python-dotenv>=1.0.0
+pydub>=0.25.1
+httpx[socks]>=0.25.0
