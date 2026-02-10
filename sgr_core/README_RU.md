@@ -26,22 +26,22 @@ SGR Core — это система искусственного интеллек
 
 ```mermaid
 graph TD
-    User[User Interface] -->|Voice/Text| Telegram[Telegram Bot]
-    Telegram -->|Voice Audio| Whisper[Groq Transcription]
-    Telegram -->|Text| Core[Core Engine (Router)]
+    User["User Interface"] -->|Voice/Text| Telegram["Telegram Bot"]
+    Telegram -->|Voice Audio| Whisper["Groq Transcription"]
+    Telegram -->|Text| Core["Core Engine (Router)"]
     
     Whisper -->|Transcribed Text| Core
     
-    Core -->|1. Reason (Buratino Persona)| Brain[LLM (DeepSeek/Groq)]
-    Brain -->|2. Select Skill| Core
+    Core -->|"1. Reason (Buratino Persona)"| Brain["LLM (DeepSeek/Groq)"]
+    Brain -->|"2. Select Skill"| Core
     
-    Core -->|3. Execute| SkillRegistry
+    Core -->|"3. Execute"| SkillRegistry
     
-    subgraph Skills [Modular Skills]
-        Portfolio[Finance Analyst]
-        RAG[Knowledge Base (Qdrant)]
-        Calendar[Calendar Agent]
-        Office[Report Generator]
+    subgraph Skills ["Modular Skills"]
+        Portfolio["Finance Analyst"]
+        RAG["Knowledge Base (Qdrant)"]
+        Calendar["Calendar Agent"]
+        Office["Report Generator"]
     end
     
     SkillRegistry --> Skills
