@@ -1,0 +1,116 @@
+# mkdocs.yml
+site_name: SGR Kernel
+site_description: "Enterprise Multi-Agent Swarm — Correctness is a Basic Right"
+site_url: "https://scarseze.github.io/sgr-kernel"
+site_author: "SGR Kernel Team"
+
+repo_name: "scarseze/sgr-kernel"
+repo_url: "https://github.com/scarseze/sgr-kernel"
+edit_uri: "blob/main/docs/"
+docs_dir: site_docs
+
+theme:
+  name: material
+  language: ru
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.tabs.link
+    - content.code.annotation
+    - content.code.copy
+  logo: material/brain
+  favicon: https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/1f9e0.svg
+
+plugins:
+  - search
+  - i18n:
+      docs_structure: folder
+      languages:
+        - locale: ru
+          default: true
+          name: Русский
+          build: true
+        - locale: en
+          name: English
+          build: true
+  - minify:
+      minify_html: true
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - attr_list
+  - md_in_html
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - 🏠 Главная: index.md
+  - 💡 Почему SGR?: docs/why_sgr.md
+  - 🚀 Быстрый старт:
+    - getting-started/installation.md
+    - getting-started/quickstart.md
+  - 📚 Документация:
+    - 🏛️ Architecture: docs/architecture.md
+    - 📑 L8 System Invariants: docs/l8_distinguished_invariants.md
+    - ⚖️ L8 Architecture Annex: docs/L8_ARCHITECTURE_ANNEX.md
+    - docs/swarm-protocol.md
+    - docs/agents.md
+    - docs/memory.md
+    - docs/telemetry.md
+    - 📖 Словарь: docs/glossary.md
+  - 🔒 Комплаенс:
+    - compliance/152fz.md
+    - compliance/gdpr.md
+    - compliance/hipaa.md
+  - 🏢 Enterprise:
+    - enterprise/features.md
+    - enterprise/migration.md
+  - 📦 Релизы: changelog.md
+  - 👥 Сообщество:
+    - community/contributing.md
+    - community/code-of-conduct.md
+
+extra:
+  version:
+    provider: mike
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/scarseze/sgr-kernel
+    - icon: fontawesome/brands/telegram
+      link: https://t.me/scarseze
+
+extra_css:
+  - stylesheets/extra.css
+
+copyright: |
+  &copy; 2026 SGR Kernel Project — Apache 2.0 License

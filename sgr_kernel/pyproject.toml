@@ -1,0 +1,92 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sgr-kernel"
+version = "3.0.0"
+description = "Schema-Guided Reasoning Kernel (RFC v2 Reference Implementation)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+  {name = "scarseze"}
+]
+keywords = ["agent", "kernel", "sgr", "rfc-v2", "reasoning"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+dependencies = [
+    "pydantic>=2.0.0",
+    "aiohttp>=3.8.0",
+    "httpx>=0.24.0",
+    "tenacity>=8.2.0",
+    "typer>=0.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+    "hypothesis>=6.0.0"
+]
+
+[project.scripts]
+sgr-kernel = "main:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["core", "interfaces", "skills"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "C4"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["core"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]
+"interfaces/*" = ["E402"]
+"test_sgr.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.10"
+# Pragmatic baseline: catch real bugs without requiring full annotation
+strict = false
+warn_return_any = true
+warn_unused_configs = true
+check_untyped_defs = true
+disallow_incomplete_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+exclude = ["tests/", "proxy/", "examples/"]
+disable_error_code = ["import-untyped"]
+
+# Strict enforcement on critical path modules
+[[tool.mypy.overrides]]
+module = [
+    "core.swarm",
+    "core.critic",
+    "core.artifacts",
+    "core.scheduler",
+    "core.reconciler"
+]
+disallow_untyped_defs = true
+disallow_any_generics = true
+warn_return_any = true
+
+[[tool.mypy.overrides]]
+module = ["requests", "qdrant_client", "litellm", "litellm.*"]
+ignore_missing_imports = true
