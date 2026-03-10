@@ -17,6 +17,10 @@ class Agent(BaseModel):
         default_factory=list, 
         description="List of instantiated skills (functions) available to this agent."
     )
+    plan_requirements: Optional[str] = Field(
+        default=None,
+        description="Strict requirements for the Plan Critic to validate the agent's proposed plan (tool choices)."
+    )
     
     # Optional specific sub-model to use, defaults to swarm's default
     model: Optional[str] = Field(default=None)
@@ -30,6 +34,11 @@ class Agent(BaseModel):
     supported_modalities: List[str] = Field(
         default_factory=lambda: ["text"],
         description="List of supported modalities, e.g., ['text', 'image', 'audio']"
+    )
+    
+    dynamic_guardrails: Optional[str] = Field(
+        default=None,
+        description="Strict fallback instructions to dynamically inject if the agent repeatedly fails Critic evaluation."
     )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)

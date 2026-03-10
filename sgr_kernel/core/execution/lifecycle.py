@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 from typing import Any
 
@@ -12,13 +13,12 @@ from core.execution import (
     StepStatus,
 )
 from core.execution.policy import StepResult
-from core.governance import (
-    GovernanceHooksBus,
-)
+from core.governance import GovernanceHooksBus
 from core.reliability import ReliabilityEngine
 from core.repair import RepairEngine
 from core.skill_interface import SkillContext, SkillRuntimeAdapter
 
+logger = logging.getLogger(__name__)
 
 class StepLifecycleEngine:
     """
@@ -62,6 +62,8 @@ class StepLifecycleEngine:
         )
 
         try:
+            logger.debug(f"Executing step {step_id} (Attempt {attempt})")
+
             # --- Phase 1: EXECUTE ---
             current_tier = self.reliability.get_escalation_tier(attempt - 1)
             skill_config = step.inputs_template.copy()
@@ -85,9 +87,15 @@ class StepLifecycleEngine:
 
             # --- Phase 3: CRITIC ---
             if step.critic_required:
-                passed, reason = await self.critic.evaluate(step.id, step.skill_name, {}, result)
-                if not passed:
-                    raise ValueError(f"Critic Failed: {reason}")
+                try:
+                    passed, reason = await self.critic.evaluate(step.id, step.skill_name, {}, result)
+                    if not passed:
+                        raise ValueError(f"Critic Failed: {reason}")
+                except Exception as e:
+                    # Ensure we classify infrastructure errors in Critic as CRITIC_FAIL
+                    if "Critic Failed" in str(e):
+                        raise
+                    raise ValueError(f"Critic Failed (System Error): {e}") from e
 
             # --- Phase 6: COMMIT (via Event) ---
             events.append(
@@ -102,6 +110,8 @@ class StepLifecycleEngine:
             return StepResult(events=events, success=True)
 
         except Exception as e:
+            logger.error(f"Step {step_id} execution failed: {e}", exc_info=True)
+
             failure_type = self._classify_failure(e)
             fail_rec = FailureRecord(
                 step_id=step_id,

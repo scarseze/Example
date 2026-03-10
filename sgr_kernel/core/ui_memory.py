@@ -25,8 +25,8 @@ sessions_table = Table(
     Column('history_json', Text),
     Column('active_agent_name', String),
     Column('transfer_count', Integer, default=0),
-    Column('created_at', DateTime, default=lambda: datetime.datetime.now(datetime.UTC)),
-    Column('updated_at', DateTime, default=lambda: datetime.datetime.now(datetime.UTC), onupdate=lambda: datetime.datetime.now(datetime.UTC))
+    Column('created_at', DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc)),
+    Column('updated_at', DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc), onupdate=lambda: datetime.datetime.now(datetime.timezone.utc))
 )
 
 jobs_table = Table(
@@ -39,8 +39,18 @@ jobs_table = Table(
     Column('lease_expiry', DateTime, nullable=True),
     Column('lease_version', Integer, default=0),
     Column('artifact_uri', String, nullable=True),
-    Column('created_at', DateTime, default=lambda: datetime.datetime.now(datetime.UTC)),
-    Column('updated_at', DateTime, default=lambda: datetime.datetime.now(datetime.UTC), onupdate=lambda: datetime.datetime.now(datetime.UTC))
+    Column('created_at', DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc)),
+    Column('updated_at', DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc), onupdate=lambda: datetime.datetime.now(datetime.timezone.utc))
+)
+
+failed_scenarios_table = Table(
+    'failed_scenarios', metadata_obj,
+    Column('scenario_id', String, primary_key=True),
+    Column('job_id', String, nullable=False, index=True),
+    Column('org_id', String, default="default_org", index=True),
+    Column('reason', String),
+    Column('context_payload', Text),
+    Column('created_at', DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
 )
 
 class UIMemory:
@@ -70,6 +80,8 @@ class UIMemory:
         self.metadata = metadata_obj
         self.sessions = sessions_table
         self.jobs = jobs_table
+        self.failed_scenarios = failed_scenarios_table
+        self.max_partition_contention = int(os.environ.get("SGR_MAX_PARTITION_CONTENTION", "50"))
         
         # self.init_db() cannot be called in __init__ as it is async now.
         # It should be called explicitly during startup.
@@ -222,7 +234,7 @@ Summary:"""
                 await self.audit_logger.log_event_async("PII_MASKED", session_id, {"action": "Data masked before async saving"})
                 
             history_json = json.dumps(masked_history, ensure_ascii=False)
-            now = datetime.datetime.now(datetime.UTC)
+            now = datetime.datetime.now(datetime.timezone.utc)
 
             # Upsert logic depends on dialect
             stmt_params = {
@@ -298,10 +310,74 @@ Summary:"""
             logger.error(f"Failed to load session for {session_id}: {str(e)}")
             return [], None, 0
 
+    async def get_unreflected_sessions(self, limit: int = 50, inactive_hours: int = 1) -> List[Dict[str, Any]]:
+        """
+        Finds sessions that haven't been updated recently and might have long histories.
+        """
+        from sqlalchemy import select
+        now = datetime.datetime.now(datetime.timezone.utc)
+        threshold_time = now - datetime.timedelta(hours=inactive_hours)
+        
+        try:
+            async with self.engine.begin() as conn:
+                stmt = select(
+                    self.sessions.c.session_id,
+                    self.sessions.c.org_id,
+                    self.sessions.c.history_json
+                ).where(self.sessions.c.updated_at < threshold_time).limit(limit)
+                
+                result = await conn.execute(stmt)
+                sessions = []
+                for row in result.fetchall():
+                    history = json.loads(row[2])
+                    # Only reflect if the history is long enough to warrant compression
+                    if len(history) > 15:
+                        sessions.append({
+                            "session_id": row[0],
+                            "org_id": row[1],
+                            "history": history
+                        })
+                return sessions
+        except Exception as e:
+            logger.error(f"get_unreflected_sessions_error: {e}")
+            return []
+
+    async def reflect_session(self, session_id: str, history: List[Dict[str, Any]], org_id: str = "default_org") -> bool:
+        """
+        Compresses a session's history and saves it back to the database.
+        """
+        try:
+            logger.info("reflecting_session", session_id=session_id, original_messages=len(history))
+            # Force compression down to 10 messages max
+            compressed_history = await self.async_truncate_history(history, max_messages=10)
+            
+            if len(compressed_history) < len(history):
+                # We actually compressed it, save it back
+                history_json = json.dumps(compressed_history, ensure_ascii=False)
+                now = datetime.datetime.now(datetime.timezone.utc)
+                
+                from sqlalchemy import update
+                async with self.engine.begin() as conn:
+                    await self._enforce_tenant_residency(org_id)
+                    await self._apply_rls_context(conn, org_id)
+                    
+                    stmt = update(self.sessions).where(self.sessions.c.session_id == session_id).values(
+                        history_json=history_json,
+                        updated_at=now # Touch the updated_at so we don't scan it again immediately
+                    )
+                    await conn.execute(stmt)
+                
+                logger.info("session_reflection_complete", session_id=session_id, new_messages=len(compressed_history))
+                return True
+        except Exception as e:
+            logger.error(f"reflect_session_error for {session_id}: {e}")
+            
+        return False
+
     async def cleanup_expired_sessions(self, ttl_days: int = 30):
         try:
             from sqlalchemy import delete
-            limit_date = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=ttl_days)
+            limit_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=ttl_days)
             async with self.engine.begin() as conn:
                 stmt = delete(self.sessions).where(self.sessions.c.updated_at < limit_date)
                 result = await conn.execute(stmt)
@@ -450,14 +526,13 @@ Summary:"""
                         active_leases = result.scalar() or 0
                         
                         # Hard structurally bounded contention $C$ per partition
-                        MAX_PARTITION_CONTENTION = 50 
-                        if active_leases >= MAX_PARTITION_CONTENTION:
+                        if active_leases >= self.max_partition_contention:
                             logger.error("g2_livelock_prevention_rejected_lease", job_id=job_id, partition=org_id, active=active_leases)
                             # By returning False here, the worker treats it as a CAS loss,
                             # triggering exponential backoff + jitter without hitting the DB's serialization lock manager.
                             return False
 
-                values = {"status": status, "updated_at": datetime.datetime.now(datetime.UTC)}
+                values = {"status": status, "updated_at": datetime.datetime.now(datetime.timezone.utc)}
                 if lease_owner is not self._UNSET:
                     values["lease_owner"] = lease_owner
                 if lease_expiry is not self._UNSET:
@@ -532,6 +607,61 @@ Summary:"""
                 return jobs
         except Exception as e:
             logger.error("failed_to_fetch_stale_jobs_via_db_time", error=str(e))
+            return []
+
+    async def get_failed_jobs(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Returns jobs that failed, used by the Reconciler to generate safety cases."""
+        try:
+            from sqlalchemy import select
+            async with self.engine.connect() as conn:
+                stmt = select(self.jobs).where(self.jobs.c.status == 'FAILED').order_by(self.jobs.c.updated_at.desc()).limit(limit)
+                result = await conn.execute(stmt)
+                return [dict(row._mapping) for row in result]
+        except Exception as e:
+            logger.error("failed_to_fetch_failed_jobs", error=str(e))
+            return []
+
+    async def save_failed_scenario(self, scenario_id: str, job_id: str, org_id: str, reason: str, context_payload: str) -> bool:
+        """Saves a failed context scenario to the database for offline testing."""
+        try:
+            async with self.engine.begin() as conn:
+                await self._enforce_tenant_residency(org_id)
+                await self._apply_rls_context(conn, org_id)
+
+                if self.engine.name == 'postgresql':
+                    stmt = pg_insert(self.failed_scenarios).values(
+                        scenario_id=scenario_id,
+                        job_id=job_id,
+                        org_id=org_id,
+                        reason=reason,
+                        context_payload=context_payload
+                    ).on_conflict_do_nothing()
+                else:
+                    stmt = sqlite_insert(self.failed_scenarios).values(
+                        scenario_id=scenario_id,
+                        job_id=job_id,
+                        org_id=org_id,
+                        reason=reason,
+                        context_payload=context_payload
+                    ).on_conflict_do_nothing()
+                    
+                await conn.execute(stmt)
+            logger.info("failed_scenario_saved", scenario_id=scenario_id, job_id=job_id)
+            return True
+        except Exception as e:
+            logger.error("failed_to_save_scenario", scenario_id=scenario_id, error=str(e))
+            return False
+
+    async def get_unresolved_scenarios(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Used by the code generator script to build offline tests."""
+        try:
+            from sqlalchemy import select
+            async with self.engine.connect() as conn:
+                stmt = select(self.failed_scenarios).order_by(self.failed_scenarios.c.created_at.desc()).limit(limit)
+                result = await conn.execute(stmt)
+                return [dict(row._mapping) for row in result]
+        except Exception as e:
+            logger.error("failed_to_fetch_scenarios", error=str(e))
             return []
 
     async def check_health(self) -> bool:
